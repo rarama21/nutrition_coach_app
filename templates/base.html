@@ -1,0 +1,32 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title or "NutriCoach" }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <div class="brand">🥗 NutriCoach</div>
+  <nav>
+    <a href="{{ url_for('today') }}">Today</a>
+    <a href="{{ url_for('summary') }}">Summary</a>
+    <a href="{{ url_for('progress') }}">Progress</a>
+    <a href="{{ url_for('profile') }}">Profile</a>
+  </nav>
+</header>
+<main>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer>
+  Nutrition values are illustrative estimates. This app is not medical advice and should not be used to diagnose or treat health conditions.
+</footer>
+</body>
+</html>

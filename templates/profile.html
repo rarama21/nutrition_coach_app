@@ -1,0 +1,63 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <span class="eyebrow">Personal setup</span>
+    <h1>Your nutrition profile</h1>
+    <p>Set a few details so the app can estimate daily targets and filter meal suggestions.</p>
+  </div>
+</section>
+
+<form method="post" class="card form-grid">
+  <label>Name
+    <input name="name" required value="{{ profile['name'] if profile else '' }}">
+  </label>
+  <label>Age
+    <input name="age" type="number" min="14" max="100" required value="{{ profile['age'] if profile else 30 }}">
+  </label>
+  <label>Sex used for calorie estimate
+    <select name="sex">
+      {% for v,label in [('male','Male'),('female','Female'),('other','Other / neutral estimate')] %}
+      <option value="{{v}}" {% if profile and profile['sex']==v %}selected{% endif %}>{{label}}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Weight (kg)
+    <input name="weight_kg" type="number" step="0.1" min="35" max="300" required value="{{ profile['weight_kg'] if profile else 75 }}">
+  </label>
+  <label>Height (cm)
+    <input name="height_cm" type="number" step="0.1" min="120" max="230" required value="{{ profile['height_cm'] if profile else 175 }}">
+  </label>
+  <label>Activity level
+    <select name="activity">
+      {% for v,label in [('1.2','Sedentary'),('1.375','Lightly active'),('1.55','Moderately active'),('1.725','Very active')] %}
+      <option value="{{v}}" {% if profile and profile['activity']|string==v %}selected{% endif %}>{{label}}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Goal
+    <select name="goal">
+      {% for v,label in [('lose','Lose weight'),('maintain','Maintain weight'),('gain','Gain weight'),('muscle','Build muscle')] %}
+      <option value="{{v}}" {% if profile and profile['goal']==v %}selected{% endif %}>{{label}}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Food preference
+    <select name="diet">
+      {% for v,label in [('omnivore','Omnivore'),('pescatarian','Pescatarian'),('vegetarian','Vegetarian'),('vegan','Vegan')] %}
+      <option value="{{v}}" {% if profile and profile['diet']==v %}selected{% endif %}>{{label}}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="span-2">Allergies (comma-separated)
+    <input name="allergies" placeholder="e.g. peanut, dairy, fish" value="{{ profile['allergies'] if profile else '' }}">
+  </label>
+  <label class="span-2">Foods you dislike (comma-separated)
+    <input name="dislikes" placeholder="e.g. mushrooms, olives" value="{{ profile['dislikes'] if profile else '' }}">
+  </label>
+  <div class="span-2">
+    <button class="primary" type="submit">Save profile</button>
+  </div>
+</form>
+{% endblock %}
