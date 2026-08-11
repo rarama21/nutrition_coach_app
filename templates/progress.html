@@ -1,0 +1,40 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <span class="eyebrow">Adaptive coaching</span>
+    <h1>Progress tracking</h1>
+    <p>Log your weight periodically. Future AI plans use the recent trend to make modest adjustments.</p>
+  </div>
+</section>
+
+<div class="two-col" style="margin-top:20px">
+  <section class="card">
+    <h2>Log weight</h2>
+    <form method="post" class="form-grid" style="grid-template-columns:1fr">
+      <label>Date<input type="date" name="date" required></label>
+      <label>Weight (kg)<input type="number" name="weight_kg" step="0.1" min="30" max="350" required value="{{ profile['weight_kg'] }}"></label>
+      <button class="primary">Save progress</button>
+    </form>
+    {% if trend['trend_per_week_kg'] is not none %}
+    <div class="stat" style="margin-top:18px">
+      <span>Recent estimated trend</span>
+      <strong>{{ trend['trend_per_week_kg'] }} kg/week</strong>
+      <small>Short-term fluctuations are normal.</small>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Recent entries</h2>
+    {% if rows %}
+      {% for r in rows %}
+      <div class="log-row"><div><b>{{ r['log_date'] }}</b><span>{{ r['weight_kg'] }} kg</span></div></div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No progress entries yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

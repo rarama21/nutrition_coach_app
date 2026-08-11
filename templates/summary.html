@@ -1,0 +1,70 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <span class="eyebrow">Daily summary</span>
+    <h1>Your nutrition totals</h1>
+    <p>Based on meals you actually logged for {{ d }}.</p>
+  </div>
+  <form method="get" class="date-box">
+    <label>Date <input type="date" name="date" value="{{ d }}" onchange="this.form.submit()"></label>
+  </form>
+</section>
+
+<section class="target-grid">
+  {% for key,label,target in [
+    ('calories','Calories',targets.calories),
+    ('protein_g','Protein',targets.protein_g),
+    ('carbs_g','Carbs',targets.carbs_g),
+    ('fat_g','Fat',targets.fat_g)
+  ] %}
+  <div class="stat">
+    <span>{{ label }}</span>
+    <strong>{{ totals[key]|round|int }}{% if key != 'calories' %}g{% endif %}</strong>
+    <small>of {{ target }}{% if key == 'calories' %} kcal{% else %}g{% endif %}</small>
+    <div class="bar"><i style="width: {{ pct(totals[key], target) }}%"></i></div>
+  </div>
+  {% endfor %}
+</section>
+
+<div class="two-col">
+  <section class="card">
+    <h2>Micronutrients</h2>
+    {% for key,label,unit in [
+      ('fiber_g','Fiber','g'),('calcium_mg','Calcium','mg'),('iron_mg','Iron','mg'),
+      ('magnesium_mg','Magnesium','mg'),('potassium_mg','Potassium','mg'),
+      ('zinc_mg','Zinc','mg'),('vitamin_c_mg','Vitamin C','mg'),
+      ('vitamin_d_mcg','Vitamin D','µg'),('vitamin_b12_mcg','Vitamin B12','µg'),
+      ('folate_mcg','Folate','µg')
+    ] %}
+    <div class="micro">
+      <div><b>{{ label }}</b><span>{{ totals[key]|round(1) }} {{ unit }} / {{ micro_targets[key] }} {{ unit }}</span></div>
+      <div class="bar"><i style="width: {{ [percentages[key],100]|min }}%"></i></div>
+      <strong>{{ percentages[key] }}%</strong>
+    </div>
+    {% endfor %}
+    <p class="muted">Micronutrient targets are general reference values for this MVP, not personalized medical targets.</p>
+  </section>
+
+  <section class="card">
+    <h2>Logged meals</h2>
+    {% if rows %}
+      {% for r in rows %}
+      <div class="log-row">
+        <div>
+          <b>{{ r['name'] }}</b>
+          <span>{{ r['servings'] }} serving(s) · {{ (r['calories'] * r['servings'])|round|int }} kcal</span>
+        </div>
+        <form method="post" action="{{ url_for('delete_log', log_id=r['id']) }}">
+          <input type="hidden" name="date" value="{{ d }}">
+          <button class="danger">Remove</button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No meals logged yet. Go to Today and tap “I ate this”.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,73 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div>
+    <span class="eyebrow">AI daily coach</span>
+    <h1>Hi {{ profile['name'] }}, here’s your plan.</h1>
+    <p>Generate a fresh plan from your profile, nutrition targets, restrictions, and recent progress.</p>
+  </div>
+  <form method="get" class="date-box">
+    <label>Date <input type="date" name="date" value="{{ d }}" onchange="this.form.submit()"></label>
+  </form>
+</section>
+
+<section class="target-grid">
+  <div class="stat"><span>Calories</span><strong>{{ targets.calories }}</strong><small>kcal target</small></div>
+  <div class="stat"><span>Protein</span><strong>{{ targets.protein_g }}g</strong><small>daily target</small></div>
+  <div class="stat"><span>Carbs</span><strong>{{ targets.carbs_g }}g</strong><small>daily target</small></div>
+  <div class="stat"><span>Fat</span><strong>{{ targets.fat_g }}g</strong><small>daily target</small></div>
+</section>
+
+<div class="card ai-box">
+  <div>
+    <span class="pill">OpenAI powered</span>
+    <h2>Generate today’s recipes</h2>
+    <p class="muted">The AI gets your profile, target, restrictions, and recent weight trend.</p>
+    {% if ai_meta %}
+      <p><b>Coach note:</b> {{ ai_meta['coach_note'] }}</p>
+      <p><b>Adjustment:</b> {{ ai_meta['adjustment_reason'] }}</p>
+    {% endif %}
+  </div>
+  <form method="post" action="{{ url_for('generate_ai_plan') }}">
+    <input type="hidden" name="date" value="{{ d }}">
+    <button class="primary">{% if rows %}Regenerate plan{% else %}Generate AI plan{% endif %}</button>
+  </form>
+</div>
+
+{% if rows %}
+<div class="section-title"><h2>Today’s meals</h2><span>{{ planned.calories|round|int }} kcal planned</span></div>
+<section class="meal-grid">
+{% for r in rows %}
+<article class="card meal-card">
+  <div class="meal-top">
+    <div><span class="pill">{{ r['meal_type'] }}</span><h3>{{ r['name'] }}</h3></div>
+    <strong>{{ r['calories']|round|int }} kcal</strong>
+  </div>
+  <div class="macro-row">
+    <span>P {{ r['protein_g']|round|int }}g</span>
+    <span>C {{ r['carbs_g']|round|int }}g</span>
+    <span>F {{ r['fat_g']|round|int }}g</span>
+    <span>Fiber {{ r['fiber_g']|round|int }}g</span>
+  </div>
+  <details>
+    <summary>Recipe</summary>
+    <p><b>Ingredients:</b> {{ r['ingredients'] }}</p>
+    <p><b>Method:</b> {{ r['instructions'] }}</p>
+  </details>
+  <div class="actions">
+    <form method="post" action="{{ url_for('log_recipe', recipe_id=r['id']) }}" class="log-form">
+      <input type="hidden" name="date" value="{{ d }}">
+      <input type="number" name="servings" value="1" min="0.25" step="0.25">
+      <button class="primary">I ate this</button>
+    </form>
+  </div>
+</article>
+{% endfor %}
+</section>
+<div class="cta card">
+  <div><h3>Done eating for the day?</h3><p>See totals from the meals you actually logged.</p></div>
+  <a class="button primary" href="{{ url_for('summary', date=d) }}">View daily summary</a>
+</div>
+{% endif %}
+{% endblock %}
