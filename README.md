@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # NutriCoach AI
 
 This version integrates the OpenAI API so meal plans are generated dynamically rather than selected from hardcoded recipes.
@@ -63,3 +64,6 @@ AI generates recipe + exact ingredient amounts -> validated nutrition database c
 That makes the nutrition database, not the language model, the source of truth for calories and micronutrients.
 
 This app is not medical advice.
+=======
+# nutrition_coach_app
+>>>>>>> origin/main
