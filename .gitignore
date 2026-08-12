@@ -151,6 +151,9 @@ activemq-data/
 .env
 .envrc
 .venv
+nutrition.db
+*.sqlite
+*.sqlite3
 env/
 venv/
 ENV/

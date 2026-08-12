@@ -3,14 +3,20 @@
 {% block content %}
 <section class="hero compact">
   <div>
-    <span class="eyebrow">Daily summary</span>
+    <span class="eyebrow">{{ period|capitalize }} summary</span>
     <h1>Your nutrition totals</h1>
-    <p>Based on meals you actually logged for {{ d }}.</p>
+    <p>Based on meals logged from {{ period_start }} to {{ period_end }}.</p>
   </div>
   <form method="get" class="date-box">
     <label>Date <input type="date" name="date" value="{{ d }}" onchange="this.form.submit()"></label>
   </form>
 </section>
+
+<nav class="period-menu">
+  {% for key, label in [("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly")] %}
+    <a class="{% if period == key %}active{% endif %}" href="{{ url_for('summary', date=d, period=key) }}">{{ label }}</a>
+  {% endfor %}
+</nav>
 
 <section class="target-grid">
   {% for key,label,target in [

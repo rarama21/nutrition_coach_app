@@ -2,7 +2,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 import sqlite3
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 import os
 import json
 from urllib.request import Request, urlopen
@@ -694,6 +694,7 @@ def profile():
         """, data)
         # Clear future/current generated plan so it can reflect new profile.
         conn.execute("DELETE FROM plans")
+        conn.execute("DELETE FROM ai_plans")
         conn.commit()
         conn.close()
         flash("Profile saved.")
@@ -837,6 +838,20 @@ def summary():
     if not profile:
         return redirect(url_for("profile"))
     d = request.args.get("date", date.today().isoformat())
+    period = request.args.get("period", "daily").lower()
+    if period not in {"daily", "weekly", "monthly"}:
+        period = "daily"
+    anchor = date.fromisoformat(d)
+    if period == "weekly":
+        start_date = anchor - timedelta(days=anchor.weekday())
+        end_date = start_date + timedelta(days=6)
+    elif period == "monthly":
+        start_date = anchor.replace(day=1)
+        next_month = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+        end_date = next_month - timedelta(days=1)
+    else:
+        start_date = end_date = anchor
+    period_days = (end_date - start_date).days + 1
     conn = db()
     rows = conn.execute("""
         SELECT l.id AS log_id, l.servings, l.actual_food,
@@ -872,18 +887,21 @@ def summary():
                     ELSE r.folate_mcg + COALESCE(l.actual_folate_mcg, 0) / l.servings END AS folate_mcg,
                r.*
         FROM logs l JOIN recipes r ON r.id=l.recipe_id
-        WHERE l.log_date=?
-        ORDER BY l.id
-    """, (d,)).fetchall()
+        WHERE l.log_date BETWEEN ? AND ?
+        ORDER BY l.log_date, l.id
+    """, (start_date.isoformat(), end_date.isoformat())).fetchall()
     conn.close()
     totals = sum_nutrition(rows, "servings")
-    targets = calc_targets(profile)
+    daily_targets = calc_targets(profile)
+    targets = {k: v * period_days for k, v in daily_targets.items()}
     percentages = {}
-    for k, target in DAILY_MICRO_TARGETS.items():
+    for k, target in {k: v * period_days for k, v in DAILY_MICRO_TARGETS.items()}.items():
         percentages[k] = min(999, round((totals[k] / target) * 100)) if target else 0
     return render_template("summary.html", profile=profile, rows=rows, totals=totals,
-                           targets=targets, micro_targets=DAILY_MICRO_TARGETS,
-                           percentages=percentages, d=d)
+                           targets=targets, micro_targets={k: v * period_days for k, v in DAILY_MICRO_TARGETS.items()},
+                           percentages=percentages, d=d, period=period,
+                           period_start=start_date.isoformat(), period_end=end_date.isoformat(),
+                           period_days=period_days)
 
 @app.post("/delete-log/<int:log_id>")
 def delete_log(log_id):
