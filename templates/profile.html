@@ -9,7 +9,7 @@
   </div>
 </section>
 
-<form method="post" class="card form-grid">
+<form method="post" class="card form-grid" id="profile-form">
   <label>Name
     <input name="name" required value="{{ profile['name'] if profile else '' }}">
   </label>
@@ -58,6 +58,53 @@
   </label>
   <div class="span-2">
     <button class="primary" type="submit">Save profile</button>
+    <p class="muted" id="local-save-status" role="status" aria-live="polite">
+      Your profile is saved locally in this browser as you edit it.
+    </p>
   </div>
 </form>
+
+<script>
+  (() => {
+    const form = document.getElementById("profile-form");
+    const status = document.getElementById("local-save-status");
+    const storageKey = "nutrition-coach.profile";
+    const fields = Array.from(form.querySelectorAll("input[name], select[name]"));
+
+    const readLocalProfile = () => {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        return saved ? JSON.parse(saved) : null;
+      } catch (error) {
+        return null;
+      }
+    };
+
+    const saveLocalProfile = () => {
+      const profile = Object.fromEntries(fields.map((field) => [field.name, field.value]));
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(profile));
+        status.textContent = "Saved locally in this browser.";
+      } catch (error) {
+        status.textContent = "Local browser saving is unavailable; the server will save on submit.";
+      }
+    };
+
+    const savedProfile = readLocalProfile();
+    if (savedProfile) {
+      fields.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(savedProfile, field.name)) {
+          field.value = savedProfile[field.name];
+        }
+      });
+      status.textContent = "Restored from this browser's local storage.";
+    }
+
+    fields.forEach((field) => {
+      field.addEventListener("input", saveLocalProfile);
+      field.addEventListener("change", saveLocalProfile);
+    });
+    form.addEventListener("submit", saveLocalProfile);
+  })();
+</script>
 {% endblock %}

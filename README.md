@@ -33,6 +33,12 @@ Set your API key:
 
     GEMINI_API_KEY=your_api_key_here
 
+You can also create a local `.env` file in this folder with:
+
+    GEMINI_API_KEY=your_api_key_here
+
+The app loads this file automatically when it starts. Do not commit `.env` to source control.
+
 Windows PowerShell:
 
     $env:GEMINI_API_KEY=your_api_key_here
