@@ -1,7 +1,7 @@
 <<<<<<< HEAD
 # NutriCoach AI
 
-This version integrates the OpenAI API so meal plans are generated dynamically rather than selected from hardcoded recipes.
+This version integrates Google Gemini so meal plans are generated dynamically rather than selected from hardcoded recipes.
 
 ## Features
 
@@ -27,25 +27,19 @@ Activate it, then:
 pip install -r requirements.txt
 ```
 
-Set an OpenAI API key.
+Create a Gemini API key in Google AI Studio: https://aistudio.google.com/apikey. The default model is gemini-3.5-flash-lite, which has a free tier subject to Google usage limits.
 
-macOS / Linux:
+Set your API key:
 
-```bash
-export OPENAI_API_KEY="your_api_key_here"
-```
+    GEMINI_API_KEY=your_api_key_here
 
 Windows PowerShell:
 
-```powershell
-$env:OPENAI_API_KEY="your_api_key_here"
-```
+    $env:GEMINI_API_KEY=your_api_key_here
 
-Optional:
+Optional model override:
 
-```bash
-export OPENAI_MODEL="gpt-5"
-```
+    $env:GEMINI_MODEL=gemini-3.5-flash-lite
 
 Run:
 

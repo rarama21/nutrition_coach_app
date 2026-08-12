@@ -5,11 +5,12 @@ from pathlib import Path
 from datetime import date
 import os
 import json
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
+from urllib.parse import quote
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "nutrition.db"
-
-from openai import OpenAI
 
 app = Flask(__name__)
 app.secret_key = "change-this-in-production"
@@ -387,11 +388,10 @@ def recent_progress():
     return result
 
 def ai_daily_plan(profile, targets, plan_date):
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set.")
+        raise RuntimeError("GEMINI_API_KEY is not set.")
 
-    client = OpenAI(api_key=api_key)
     progress = recent_progress()
 
     meal_schema = {
@@ -424,7 +424,6 @@ def ai_daily_plan(profile, targets, plan_date):
             "fiber_g","calcium_mg","iron_mg","magnesium_mg","potassium_mg","sodium_mg","zinc_mg",
             "vitamin_c_mg","vitamin_d_mcg","vitamin_b12_mcg","folate_mcg","allergens","diet"
         ],
-        "additionalProperties": False
     }
 
     schema = {
@@ -435,7 +434,6 @@ def ai_daily_plan(profile, targets, plan_date):
             "meals": {"type": "array", "minItems": 4, "maxItems": 4, "items": meal_schema}
         },
         "required": ["coach_note", "adjustment_reason", "meals"],
-        "additionalProperties": False
     }
 
     prompt = f"""
@@ -475,19 +473,41 @@ RULES
 - adjustment_reason must briefly explain whether recent progress changed today's plan.
 """
 
-    response = client.responses.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-5"),
-        input=prompt,
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "daily_nutrition_plan",
-                "strict": True,
-                "schema": schema
-            }
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+            "responseSchema": schema
         }
+    }
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    request = Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:generateContent",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        method="POST"
     )
-    return json.loads(response.output_text)
+    try:
+        with urlopen(request, timeout=180) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        try:
+            details = json.loads(exc.read().decode("utf-8"))
+            message = details.get("error", {}).get("message", str(exc))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            message = str(exc)
+        raise RuntimeError(f"Gemini request failed ({exc.code}): {message}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Could not connect to Gemini: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise RuntimeError("Gemini request timed out.") from exc
+
+    try:
+        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(text)
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Gemini returned an invalid meal plan.") from exc
 
 def save_ai_plan(plan_date, plan):
     conn = db()
