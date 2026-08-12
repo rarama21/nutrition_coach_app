@@ -12,6 +12,34 @@ from urllib.parse import quote
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "nutrition.db"
 
+
+def load_local_env():
+    """Load simple KEY=VALUE entries from the local .env file.
+
+    Existing process environment variables always win. The file is ignored by
+    git, so local API keys do not need to be committed to the project.
+    """
+    env_path = APP_DIR / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition("=")
+        if not separator or not key.strip():
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ.setdefault(key.strip(), value)
+
+
+load_local_env()
+
 app = Flask(__name__)
 app.secret_key = "change-this-in-production"
 
@@ -230,6 +258,23 @@ def init_db():
         log_date TEXT NOT NULL,
         recipe_id INTEGER NOT NULL,
         servings REAL NOT NULL DEFAULT 1,
+        actual_food TEXT DEFAULT '',
+        actual_calories REAL,
+        actual_protein_g REAL,
+        actual_carbs_g REAL,
+        actual_fat_g REAL,
+        actual_fiber_g REAL,
+        actual_calcium_mg REAL,
+        actual_iron_mg REAL,
+        actual_magnesium_mg REAL,
+        actual_potassium_mg REAL,
+        actual_sodium_mg REAL,
+        actual_zinc_mg REAL,
+        actual_vitamin_c_mg REAL,
+        actual_vitamin_d_mcg REAL,
+        actual_vitamin_b12_mcg REAL,
+        actual_folate_mcg REAL,
+        didnt_eat INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(recipe_id) REFERENCES recipes(id)
     );
 
@@ -245,6 +290,29 @@ def init_db():
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Add actual-food fields to databases created before meal overrides existed.
+    log_columns = {row["name"] for row in conn.execute("PRAGMA table_info(logs)")}
+    for column, definition in {
+        "actual_food": "TEXT DEFAULT ''",
+        "actual_calories": "REAL",
+        "actual_protein_g": "REAL",
+        "actual_carbs_g": "REAL",
+        "actual_fat_g": "REAL",
+        "actual_fiber_g": "REAL",
+        "actual_calcium_mg": "REAL",
+        "actual_iron_mg": "REAL",
+        "actual_magnesium_mg": "REAL",
+        "actual_potassium_mg": "REAL",
+        "actual_sodium_mg": "REAL",
+        "actual_zinc_mg": "REAL",
+        "actual_vitamin_c_mg": "REAL",
+        "actual_vitamin_d_mcg": "REAL",
+        "actual_vitamin_b12_mcg": "REAL",
+        "actual_folate_mcg": "REAL",
+        "didnt_eat": "INTEGER NOT NULL DEFAULT 0",
+    }.items():
+        if column not in log_columns:
+            conn.execute(f"ALTER TABLE logs ADD COLUMN {column} {definition}")
     count = conn.execute("SELECT COUNT(*) AS n FROM recipes").fetchone()["n"]
     if count == 0:
         cols = list(RECIPES[0].keys())
@@ -534,6 +602,58 @@ def save_ai_plan(plan_date, plan):
     conn.commit()
     conn.close()
 
+
+def estimate_actual_food(description):
+    """Estimate nutrition for a user's free-text meal using Gemini."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set; it is needed to estimate the meal.")
+
+    keys = ["calories", "protein_g", "carbs_g", "fat_g"] + MICRO_KEYS
+    schema = {
+        "type": "object",
+        "properties": {key: {"type": "number"} for key in keys},
+        "required": keys,
+    }
+    prompt = f"""
+Estimate the nutrition for this meal as eaten: {description}
+Return one JSON object with calories, protein_g, carbs_g, fat_g, and these micronutrients:
+fiber_g, calcium_mg, iron_mg, magnesium_mg, potassium_mg, sodium_mg, zinc_mg,
+vitamin_c_mg, vitamin_d_mcg, vitamin_b12_mcg, folate_mcg.
+Use realistic estimates for the described portion. If quantity is unclear, make a
+reasonable typical-portion assumption. Values are estimates, not medical advice.
+"""
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    request = Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:generateContent",
+        data=json.dumps({
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+            },
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=90) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        estimate = json.loads(text)
+    except HTTPError as exc:
+        raise RuntimeError(f"Meal nutrition estimate failed ({exc.code}).") from exc
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError("Could not connect to Gemini for the meal estimate.") from exc
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Gemini returned an invalid meal nutrition estimate.") from exc
+
+    try:
+        return {key: float(estimate[key]) for key in keys}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Meal nutrition estimate was incomplete.") from exc
+
 def get_ai_plan_meta(plan_date):
     conn = db()
     row = conn.execute("SELECT raw_json FROM ai_plans WHERE plan_date=?", (plan_date,)).fetchone()
@@ -658,9 +778,54 @@ def swap(meal_type):
 @app.post("/log/<int:recipe_id>")
 def log_recipe(recipe_id):
     d = request.form.get("date", date.today().isoformat())
-    servings = float(request.form.get("servings", 1))
+    skipped = request.form.get("didnt_eat") == "on"
+    servings = 1 if skipped else float(request.form.get("servings", 1))
+    actual_food = request.form.get("actual_food", "").strip()
+
+    if skipped and not actual_food:
+        flash("Describe what you ate so the app can estimate its nutrition.")
+        return redirect(url_for("today", date=d))
+
+    def optional_number(name):
+        value = request.form.get(name, "").strip()
+        return float(value) if value else None
+
+    actual_calories = optional_number("actual_calories")
+    actual_protein = optional_number("actual_protein_g")
+    actual_carbs = optional_number("actual_carbs_g")
+    actual_fat = optional_number("actual_fat_g")
+    try:
+        estimate = estimate_actual_food(actual_food) if actual_food else {}
+    except RuntimeError as exc:
+        flash(f"Could not estimate that meal: {exc}")
+        return redirect(url_for("today", date=d))
+    actual_values = {
+        "actual_calories": actual_calories if actual_calories is not None else estimate.get("calories"),
+        "actual_protein_g": actual_protein if actual_protein is not None else estimate.get("protein_g"),
+        "actual_carbs_g": actual_carbs if actual_carbs is not None else estimate.get("carbs_g"),
+        "actual_fat_g": actual_fat if actual_fat is not None else estimate.get("fat_g"),
+    }
+    for key in MICRO_KEYS:
+        actual_values[f"actual_{key}"] = estimate.get(key)
     conn = db()
-    conn.execute("INSERT INTO logs(log_date, recipe_id, servings) VALUES(?,?,?)", (d, recipe_id, servings))
+    conn.execute("""
+        INSERT INTO logs(
+            log_date, recipe_id, servings, actual_food, actual_calories,
+            actual_protein_g, actual_carbs_g, actual_fat_g, actual_fiber_g,
+            actual_calcium_mg, actual_iron_mg, actual_magnesium_mg,
+            actual_potassium_mg, actual_sodium_mg, actual_zinc_mg,
+            actual_vitamin_c_mg, actual_vitamin_d_mcg, actual_vitamin_b12_mcg,
+            actual_folate_mcg, didnt_eat
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (d, recipe_id, servings, actual_food, actual_values["actual_calories"],
+          actual_values["actual_protein_g"], actual_values["actual_carbs_g"],
+          actual_values["actual_fat_g"], actual_values["actual_fiber_g"],
+          actual_values["actual_calcium_mg"], actual_values["actual_iron_mg"],
+          actual_values["actual_magnesium_mg"], actual_values["actual_potassium_mg"],
+          actual_values["actual_sodium_mg"], actual_values["actual_zinc_mg"],
+          actual_values["actual_vitamin_c_mg"], actual_values["actual_vitamin_d_mcg"],
+          actual_values["actual_vitamin_b12_mcg"], actual_values["actual_folate_mcg"],
+          int(skipped)))
     conn.commit()
     conn.close()
     flash("Meal logged.")
@@ -674,7 +839,38 @@ def summary():
     d = request.args.get("date", date.today().isoformat())
     conn = db()
     rows = conn.execute("""
-        SELECT l.servings, r.*
+        SELECT l.id AS log_id, l.servings, l.actual_food,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_calories, 0) / l.servings
+                    ELSE r.calories + COALESCE(l.actual_calories, 0) / l.servings END AS calories,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_protein_g, 0) / l.servings
+                    ELSE r.protein_g + COALESCE(l.actual_protein_g, 0) / l.servings END AS protein_g,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_carbs_g, 0) / l.servings
+                    ELSE r.carbs_g + COALESCE(l.actual_carbs_g, 0) / l.servings END AS carbs_g,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_fat_g, 0) / l.servings
+                    ELSE r.fat_g + COALESCE(l.actual_fat_g, 0) / l.servings END AS fat_g,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_fiber_g, 0) / l.servings
+                    ELSE r.fiber_g + COALESCE(l.actual_fiber_g, 0) / l.servings END AS fiber_g,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_calcium_mg, 0) / l.servings
+                    ELSE r.calcium_mg + COALESCE(l.actual_calcium_mg, 0) / l.servings END AS calcium_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_iron_mg, 0) / l.servings
+                    ELSE r.iron_mg + COALESCE(l.actual_iron_mg, 0) / l.servings END AS iron_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_magnesium_mg, 0) / l.servings
+                    ELSE r.magnesium_mg + COALESCE(l.actual_magnesium_mg, 0) / l.servings END AS magnesium_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_potassium_mg, 0) / l.servings
+                    ELSE r.potassium_mg + COALESCE(l.actual_potassium_mg, 0) / l.servings END AS potassium_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_sodium_mg, 0) / l.servings
+                    ELSE r.sodium_mg + COALESCE(l.actual_sodium_mg, 0) / l.servings END AS sodium_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_zinc_mg, 0) / l.servings
+                    ELSE r.zinc_mg + COALESCE(l.actual_zinc_mg, 0) / l.servings END AS zinc_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_vitamin_c_mg, 0) / l.servings
+                    ELSE r.vitamin_c_mg + COALESCE(l.actual_vitamin_c_mg, 0) / l.servings END AS vitamin_c_mg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_vitamin_d_mcg, 0) / l.servings
+                    ELSE r.vitamin_d_mcg + COALESCE(l.actual_vitamin_d_mcg, 0) / l.servings END AS vitamin_d_mcg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_vitamin_b12_mcg, 0) / l.servings
+                    ELSE r.vitamin_b12_mcg + COALESCE(l.actual_vitamin_b12_mcg, 0) / l.servings END AS vitamin_b12_mcg,
+               CASE WHEN l.didnt_eat THEN COALESCE(l.actual_folate_mcg, 0) / l.servings
+                    ELSE r.folate_mcg + COALESCE(l.actual_folate_mcg, 0) / l.servings END AS folate_mcg,
+               r.*
         FROM logs l JOIN recipes r ON r.id=l.recipe_id
         WHERE l.log_date=?
         ORDER BY l.id

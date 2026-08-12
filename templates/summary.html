@@ -53,12 +53,13 @@
       {% for r in rows %}
       <div class="log-row">
         <div>
-          <b>{{ r['name'] }}</b>
+          <b>{{ r['meal_type'] }}</b>
+          <span>{{ r['actual_food'] if r['actual_food'] else r['name'] }}</span>
           <span>{{ r['servings'] }} serving(s) · {{ (r['calories'] * r['servings'])|round|int }} kcal</span>
         </div>
-        <form method="post" action="{{ url_for('delete_log', log_id=r['id']) }}">
+        <form method="post" action="{{ url_for('delete_log', log_id=r['log_id']) }}">
           <input type="hidden" name="date" value="{{ d }}">
-          <button class="danger">Remove</button>
+          <button class="danger" type="submit">Remove</button>
         </form>
       </div>
       {% endfor %}

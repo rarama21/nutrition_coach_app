@@ -45,9 +45,9 @@
     <strong>{{ r['calories']|round|int }} kcal</strong>
   </div>
   <div class="macro-row">
-    <span>P {{ r['protein_g']|round|int }}g</span>
-    <span>C {{ r['carbs_g']|round|int }}g</span>
-    <span>F {{ r['fat_g']|round|int }}g</span>
+    <span>Protein {{ r['protein_g']|round|int }}g</span>
+    <span>Carbs {{ r['carbs_g']|round|int }}g</span>
+    <span>Fats {{ r['fat_g']|round|int }}g</span>
     <span>Fiber {{ r['fiber_g']|round|int }}g</span>
   </div>
   <details>
@@ -58,7 +58,17 @@
   <div class="actions">
     <form method="post" action="{{ url_for('log_recipe', recipe_id=r['id']) }}" class="log-form">
       <input type="hidden" name="date" value="{{ d }}">
-      <input type="number" name="servings" value="1" min="0.25" step="0.25">
+      <label class="skip-meal"><input type="checkbox" name="didnt_eat"> I didn't eat this</label>
+      <label class="servings-label">Servings<input type="number" name="servings" value="1" min="0.25" step="0.25"></label>
+      <label class="actual-food-label">What did you actually eat?
+        <textarea name="actual_food" rows="2" placeholder="Optional unless you didn't eat this"></textarea>
+      </label>
+      <div class="actual-nutrition">
+        <label>Calories<input type="number" name="actual_calories" min="0" step="1" placeholder="kcal"></label>
+        <label>Protein<input type="number" name="actual_protein_g" min="0" step="0.1" placeholder="g"></label>
+        <label>Carbs<input type="number" name="actual_carbs_g" min="0" step="0.1" placeholder="g"></label>
+        <label>Fat<input type="number" name="actual_fat_g" min="0" step="0.1" placeholder="g"></label>
+      </div>
       <button class="primary">I ate this</button>
     </form>
   </div>
@@ -70,4 +80,14 @@
   <a class="button primary" href="{{ url_for('summary', date=d) }}">View daily summary</a>
 </div>
 {% endif %}
+<script>
+  document.querySelectorAll(".log-form").forEach((form) => {
+    const checkbox = form.querySelector("input[name='didnt_eat']");
+    const servings = form.querySelector("input[name='servings']");
+    checkbox.addEventListener("change", () => {
+      servings.disabled = checkbox.checked;
+      servings.required = !checkbox.checked;
+    });
+  });
+</script>
 {% endblock %}
