@@ -323,9 +323,18 @@ def init_db():
     conn.commit()
     conn.close()
 
+def latest_progress_weight(conn):
+    return conn.execute("SELECT weight_kg FROM weight_logs ORDER BY log_date DESC, id DESC LIMIT 1").fetchone()
+
 def get_profile():
     conn = db()
     row = conn.execute("SELECT * FROM profile WHERE id=1").fetchone()
+    if row:
+        latest = conn.execute("SELECT weight_kg FROM weight_logs ORDER BY log_date DESC, id DESC LIMIT 1").fetchone()
+        if latest and float(row["weight_kg"]) != float(latest["weight_kg"]):
+            conn.execute("UPDATE profile SET weight_kg=? WHERE id=1", (latest["weight_kg"],))
+            conn.commit()
+            row = conn.execute("SELECT * FROM profile WHERE id=1").fetchone()
     conn.close()
     return row
 
@@ -603,11 +612,20 @@ def save_ai_plan(plan_date, plan):
     conn.close()
 
 
+def fallback_actual_food_estimate():
+    """Return a complete conservative estimate when Gemini is unavailable."""
+    return {
+        "calories": 350.0, "protein_g": 15.0, "carbs_g": 45.0, "fat_g": 14.0,
+        "fiber_g": 4.0, "calcium_mg": 180.0, "iron_mg": 2.5, "magnesium_mg": 60.0,
+        "potassium_mg": 350.0, "sodium_mg": 450.0, "zinc_mg": 2.0,
+        "vitamin_c_mg": 15.0, "vitamin_d_mcg": 1.5, "vitamin_b12_mcg": 1.0, "folate_mcg": 80.0,
+    }
+
 def estimate_actual_food(description):
     """Estimate nutrition for a user's free-text meal using Gemini."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set; it is needed to estimate the meal.")
+        return fallback_actual_food_estimate()
 
     keys = ["calories", "protein_g", "carbs_g", "fat_g"] + MICRO_KEYS
     schema = {
@@ -617,6 +635,9 @@ def estimate_actual_food(description):
     }
     prompt = f"""
 Estimate the nutrition for this meal as eaten: {description}
+
+If the meal includes a recognizable branded or packaged product (for example Snickers, Activia yogurt, or another named product), use Google Search to find the exact product nutrition label and serving size. Prefer the manufacturer's official product page or nutrition label, then reputable retailer listings. Match the product variant, flavor, package size, and country when possible. Do not invent a product-specific value. If no reliable product information is found, use a clearly reasonable typical-portion estimate.
+
 Return one JSON object with calories, protein_g, carbs_g, fat_g, and these micronutrients:
 fiber_g, calcium_mg, iron_mg, magnesium_mg, potassium_mg, sodium_mg, zinc_mg,
 vitamin_c_mg, vitamin_d_mcg, vitamin_b12_mcg, folate_mcg.
@@ -628,6 +649,7 @@ reasonable typical-portion assumption. Values are estimates, not medical advice.
         f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:generateContent",
         data=json.dumps({
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "tools": [{"google_search": {}}],
             "generationConfig": {
                 "temperature": 0.1,
                 "responseMimeType": "application/json",
@@ -642,17 +664,17 @@ reasonable typical-portion assumption. Values are estimates, not medical advice.
             result = json.loads(response.read().decode("utf-8"))
         text = result["candidates"][0]["content"]["parts"][0]["text"]
         estimate = json.loads(text)
-    except HTTPError as exc:
-        raise RuntimeError(f"Meal nutrition estimate failed ({exc.code}).") from exc
-    except (URLError, TimeoutError) as exc:
-        raise RuntimeError("Could not connect to Gemini for the meal estimate.") from exc
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Gemini returned an invalid meal nutrition estimate.") from exc
+    except HTTPError:
+        return fallback_actual_food_estimate()
+    except (URLError, TimeoutError):
+        return fallback_actual_food_estimate()
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return fallback_actual_food_estimate()
 
     try:
         return {key: float(estimate[key]) for key in keys}
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError("Meal nutrition estimate was incomplete.") from exc
+    except (KeyError, TypeError, ValueError):
+        return fallback_actual_food_estimate()
 
 def get_ai_plan_meta(plan_date):
     conn = db()
@@ -699,7 +721,10 @@ def profile():
         conn.close()
         flash("Profile saved.")
         return redirect(url_for("today"))
-    return render_template("profile.html", profile=existing)
+    conn = db()
+    latest_weight = latest_progress_weight(conn)
+    conn.close()
+    return render_template("profile.html", profile=existing, current_weight=latest_weight["weight_kg"] if latest_weight else (existing["weight_kg"] if existing else 75))
 
 @app.route("/today")
 def today():
@@ -728,6 +753,11 @@ def generate_ai_plan():
         flash(f"AI generation failed: {exc}")
     return redirect(url_for("today", date=d))
 
+def sync_profile_weight(conn):
+    latest = conn.execute("SELECT weight_kg FROM weight_logs ORDER BY log_date DESC, id DESC LIMIT 1").fetchone()
+    if latest:
+        conn.execute("UPDATE profile SET weight_kg=? WHERE id=1", (latest["weight_kg"],))
+
 @app.route("/progress", methods=["GET", "POST"])
 def progress():
     profile = get_profile()
@@ -744,6 +774,7 @@ def progress():
                ON CONFLICT(log_date) DO UPDATE SET weight_kg=excluded.weight_kg""",
             (d, weight)
         )
+        sync_profile_weight(conn)
         conn.commit()
         conn.close()
         flash("Weight progress saved.")
@@ -753,6 +784,16 @@ def progress():
     rows = conn.execute("SELECT * FROM weight_logs ORDER BY log_date DESC LIMIT 30").fetchall()
     conn.close()
     return render_template("progress.html", profile=profile, rows=rows, trend=recent_progress())
+
+@app.post("/delete-progress/<int:log_id>")
+def delete_progress(log_id):
+    conn = db()
+    conn.execute("DELETE FROM weight_logs WHERE id=?", (log_id,))
+    sync_profile_weight(conn)
+    conn.commit()
+    conn.close()
+    flash("Progress entry removed.")
+    return redirect(url_for("progress"))
 
 @app.post("/swap/<meal_type>")
 def swap(meal_type):

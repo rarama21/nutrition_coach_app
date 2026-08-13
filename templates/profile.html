@@ -24,7 +24,7 @@
     </select>
   </label>
   <label>Weight (kg)
-    <input name="weight_kg" type="number" step="0.1" min="35" max="300" required value="{{ profile['weight_kg'] if profile else 75 }}">
+    <input name="weight_kg" type="number" step="0.1" min="35" max="300" required value="{{ current_weight }}">
   </label>
   <label>Height (cm)
     <input name="height_cm" type="number" step="0.1" min="120" max="230" required value="{{ profile['height_cm'] if profile else 175 }}">
