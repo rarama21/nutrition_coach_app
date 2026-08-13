@@ -30,11 +30,29 @@
     <h2>Recent entries</h2>
     {% if rows %}
       {% for r in rows %}
-      <div class="log-row"><div><b>{{ r['log_date'] }}</b><span>{{ r['weight_kg'] }} kg</span></div></div>
+      <div class="log-row"><div><b>{{ r['log_date'] }}</b><span>{{ r['weight_kg'] }} kg</span></div><form method="post" action="{{ url_for('delete_progress', log_id=r['id']) }}"><button class="danger" type="submit">Remove</button></form></div>
       {% endfor %}
     {% else %}
       <p class="muted">No progress entries yet.</p>
     {% endif %}
   </section>
 </div>
+
+<section class="card progress-chart-card">
+  <h2>Weight progress</h2>
+  {% if rows|length > 0 %}
+  <div class="progress-chart-wrap">
+    <svg class="progress-chart" viewBox="0 0 800 320" role="img" aria-label="Weight progress chart">
+      <line x1="64" y1="24" x2="64" y2="270" class="chart-axis" />
+      <line x1="64" y1="270" x2="780" y2="270" class="chart-axis" />
+      <polyline class="chart-line" points=""></polyline>
+      <g class="chart-points"></g><g class="chart-labels"></g><g class="chart-grid"></g>
+    </svg>
+    <div class="progress-point-data" hidden>{% for r in rows|reverse %}<span class="progress-point" data-date="{{ r['log_date'] }}" data-weight="{{ r['weight_kg'] }}"></span>{% endfor %}</div>
+  </div>
+  {% else %}<p class="muted">Add at least one weight entry to see your chart.</p>{% endif %}
+</section>
+<script>
+(() => { const data=[...document.querySelectorAll('.progress-point')].map(p=>({date:p.dataset.date,weight:Number(p.dataset.weight)})); if(!data.length)return; const L=64,R=780,T=24,B=270,w=data.map(d=>d.weight),min=Math.floor(Math.min(...w)-1),max=Math.ceil(Math.max(...w)+1),x=i=>data.length===1?(L+R)/2:L+i*(R-L)/(data.length-1),y=v=>B-(v-min)*(B-T)/Math.max(max-min,1),svg=document.querySelector('.progress-chart'),line=svg.querySelector('.chart-line'),pts=svg.querySelector('.chart-points'),labs=svg.querySelector('.chart-labels'),grid=svg.querySelector('.chart-grid'); line.setAttribute('points',data.map((d,i)=>x(i)+','+y(d.weight)).join(' ')); [min,(min+max)/2,max].forEach(v=>{let l=document.createElementNS('http://www.w3.org/2000/svg','line');l.setAttribute('x1',L);l.setAttribute('x2',R);l.setAttribute('y1',y(v));l.setAttribute('y2',y(v));l.setAttribute('class','chart-grid-line');grid.appendChild(l);let t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',8);t.setAttribute('y',y(v)+5);t.setAttribute('class','chart-y-label');t.textContent=v.toFixed(1)+' kg';labs.appendChild(t)}); data.forEach((d,i)=>{let c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('cx',x(i));c.setAttribute('cy',y(d.weight));c.setAttribute('r',5);c.setAttribute('class','chart-point');pts.appendChild(c);if(i===0||i===data.length-1||data.length<=6){let t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',x(i));t.setAttribute('y',300);t.setAttribute('text-anchor','middle');t.setAttribute('class','chart-x-label');t.textContent=d.date.slice(5);labs.appendChild(t)}}) })();
+</script>
 {% endblock %}
